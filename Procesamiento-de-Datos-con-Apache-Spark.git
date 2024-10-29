@@ -1,3 +1,5 @@
+primeramente realizamos la conexion con el servidor hadoop por medio de putty.
+
 Realizamos la descarga desde la página de spark  desde la página oficial mediante el código.
 VER=3.5.3 
 wget https://dlcdn.apache.org/spark/spark-$VER/spark-$VER-bin-hadoop3.tgz
