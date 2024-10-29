@@ -1,0 +1,272 @@
+Realizamos la descarga desde la página de spark  desde la página oficial mediante el código.
+VER=3.5.3 
+wget https://dlcdn.apache.org/spark/spark-$VER/spark-$VER-bin-hadoop3.tgz
+
+Luego, descomprimimos la carpeta Apache Spark.
+tar xvf spark-$VER-bin-hadoop3.tgz
+
+Movemos el directorio spark-$VER-bin-hadoop3/ al directorio /opt/spark.
+sudo mv spark-$VER-bin-hadoop3/ /opt/spark
+
+Abrimos el archive bashrc y agregamos al final el siguiente código y por ultimo guardamos y cerramos con Crtl+O enter y luego Crtl+X.
+export SPARK_HOME=/opt/spark 
+export PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
+
+Activamos la configuración anterior con el siguiente comando.
+source ~/.bashrc
+inicializamos los servicios con el comando.
+start-master.sh
+
+Para acceder a ese servicio por el puerto 8080 ejecutamos el comando.
+sudo ss -tunelp | grep 8080
+
+Ingresamos por medio del navegador a la interfaz web de spark mediante la dirección ip y el puerto 8080
+
+Ejecutamos e inicializamos el proceso de trabajo de spark con el comando:
+start-slave.sh spark://bigdata:7077
+
+Instalamos pyspark con el siguiente comando:
+Pyspark
+
+Accedemos a el spark jops por el puerto 4040.
+
+Instalamos todos los paquetes de Python y Pip.
+sudo apt install -y python3-pip
+
+Instalamos Pyspark .
+sudo pip install pyspark
+
+
+1.	Definición del problema y conjunto de datos: Seleccionar un problema que pueda ser resuelto mediante el análisis de un conjunto de datos de gran volumen. 
+•	El conjunto de datos puede ser propio o provenir de alguna fuente pública (Kaggle, UCI Machine Learning Repository, datos abiertos de Colombia, etc.)
+El conjunto de datos que usare para la implementación de spark y hadoop son los datos obtenidos de los datos abiertos del gobierno específicamente la Tasa de Cambio Representativa del Mercado- TRM, que corresponde al promedio ponderado de las operaciones de compra y venta de contado de dólares de los Estados Unidos de América a cambio de moneda legal colombiana. En esa base de datos existen 7942 registros y columnas como valor de tipo numérico, unidad de tipo texto, vigenciadesde de tipo fecha y vigenciahasta de tipo fecha.
+
+2.	Implementación en Spark: Desarrollar aplicaciones en Spark (utilizando Python) que realicen las siguientes tareas:
+Procesamiento en batch: 
+•	Cargar el conjunto de datos seleccionados desde la fuente original. 
+Para cargar el conjunto de datos primero debemos iniciar nuevamente en el putty con usuarios de hadoop:
+su - hadoop 
+Password: hadoop
+
+Inicializamos los servicios de hadoop y verificamos en nuestro navegador por el puerto 9870.
+
+Creamos una carpeta llamada Tarea3 hdfs para almacenar nuestros datos por medio del comando:
+hdfs dfs -mkdir /Tarea3
+
+
+Para este paso buscamos nuestro Dataset y copiamos el vinculo eliminándole la parte de  “?accessType=DOWNLOAD” en mi caso mi URL quedo de la siguiente manera. Luego agregamos wget más un espacio para descargar el dataset en la maquina virtual.
+wget  https://www.datos.gov.co/api/views/32sa-8pi3/rows.csv 
+
+Copiamos el dataset que descargamos anteriormente y lo pegamos en nuestra carpeta HDFS creada llamada Tarea3:
+hdfs dfs -put /home/hadoop/rows.csv /Tarea3
+
+Podemos ver que se agrego correctamente:
+
+•	Realizar operaciones de limpieza, transformación y análisis exploratorio de datos (EDA) utilizando RDDs o DataFrames. 
+Iniciamos nuevamente en el putty pero con usuario vboxuser y contraseña bigdata.
+
+
+Creamos un archivo Tarea3.py donde ejecutaremos el siguiente comando:
+Para crear el archivo: nano tarea3.py
+
+# Importamos librerías
+from pyspark.sql import SparkSession, functions as F
+from pyspark.sql.window import Window
+
+# Inicializa la sesión de Spark
+spark = SparkSession.builder.appName('Tarea3').getOrCreate()
+
+# Define la ruta del archivo .csv en HDFS
+file_path = 'hdfs://localhost:9000/Tarea3/rows.csv'
+
+# Lee el archivo .csv
+df = spark.read.format('csv').option('header','true').option('inferSchema', 'true').load(file_path)
+
+# Imprimimos el esquema
+print("Esquema del DataFrame:")
+df.printSchema()
+
+# Muestra las primeras filas del DataFrame
+print("\nPrimeras filas del DataFrame:")
+df.show()
+
+# Estadísticas básicas
+print("\nEstadísticas básicas:")
+df.summary().show()
+
+# Limpieza: Eliminación de duplicados
+df_clean = df.dropDuplicates()
+print("\nNúmero de filas después de eliminar duplicados:", df_clean.count())
+
+# Análisis Exploratorio de Datos (EDA)
+
+# 1. Días con valor mayor a 5000
+print("\nDías con valor mayor a 5000:")
+dias = df_clean.filter(F.col('VALOR') > 5000).select('VALOR','VIGENCIADESDE','VIGENCIAHASTA')
+dias.show()
+
+# 2. Valores ordenados de mayor a menor
+print("\nValores ordenados de mayor a menor:")
+sorted_df = df_clean.sort(F.col("VALOR").desc())
+sorted_df.show()
+
+# 3. Análisis estadístico por UNIDAD
+print("\nAnálisis estadístico por UNIDAD:")
+df_clean.groupBy("UNIDAD").agg(
+    F.count("VALOR").alias("count"),
+    F.mean("VALOR").alias("mean_valor"),
+    F.min("VALOR").alias("min_valor"),
+    F.max("VALOR").alias("max_valor")
+).show()
+
+# 4. Distribución de valores por mes
+print("\nDistribución de valores por mes:")
+df_clean.withColumn("mes", F.substring("VIGENCIADESDE", 6, 2)) \
+    .groupBy("mes") \
+    .agg(F.count("VALOR").alias("count"), F.mean("VALOR").alias("mean_valor")) \
+    .orderBy("mes") \
+    .show()
+
+# 5. Top 10 valores más altos
+print("\nTop 10 valores más altos:")
+window = Window.orderBy(F.desc("VALOR"))
+df_clean.withColumn("rank", F.rank().over(window)) \
+    .filter(F.col("rank") <= 10) \
+    .select("VALOR", "UNIDAD", "VIGENCIADESDE", "VIGENCIAHASTA") \
+    .show()
+
+# 6. Análisis de valores atípicos (outliers)
+print("\nAnálisis de valores atípicos (outliers):")
+quantiles = df_clean.approxQuantile("VALOR", [0.25, 0.75], 0.05)
+IQR = quantiles[1] - quantiles[0]
+lower_bound = quantiles[0] - 1.5 * IQR
+upper_bound = quantiles[1] + 1.5 * IQR
+
+outliers = df_clean.filter((F.col("VALOR") < lower_bound) | (F.col("VALOR") > upper_bound))
+print(f"Número de outliers: {outliers.count()}")
+outliers.show()
+
+# 7. Análisis de completitud de datos
+print("\nAnálisis de completitud de datos:")
+for col in df_clean.columns:
+    non_null_count = df_clean.filter(F.col(col).isNotNull()).count()
+    completeness = (non_null_count / df_clean.count()) * 100
+    print(f"{col}: {completeness:.2f}% completo")
+
+# 8. Rango de fechas en el dataset
+print("\nRango de fechas en el dataset:")
+df_clean.agg(
+    F.min("VIGENCIADESDE").alias("fecha_inicio"),
+    F.max("VIGENCIAHASTA").alias("fecha_fin")
+).show()
+
+Guardamos y cerramos con r Crtl+O enter y luego Crtl+X.
+Ejecutamos el archivo creado anteriormente con:
+python3 tarea3.py
+los resultados de la ejecución fueron los siguientes:
+
+
+
+
+•	Almacenar los resultados procesados.
+
+Procesamiento en tiempo real (Spark Streaming & Kafka): 
+•	Configurar un topic en Kafka para simular la llegada de datos en tiempo real (usar un generador de datos). 
+Ejecutamos putty con nuestra ip del servidor y nos e iniciamos sección con el usuario vboxuser y contraseña bigdata.
+
+
+Realizamos la instalación de Python Kafka con el comando.
+pip install kafka-python
+
+Se descarga, descomprime y mueve Apache Kafka a la carpeta deseada.
+wget https://downloads.apache.org/kafka/3.6.2/kafka_2.13-3.6.2.tgz
+
+tar -xzf kafka_2.13-3.6.2.tgz
+
+sudo mv kafka_2.13-3.6.2 /opt/Kafka
+
+Inicializamos el servidor ZooKeeper.
+sudo /opt/Kafka/bin/zookeeper-server-start.sh /opt/Kafka/config/zookeeper.properties &
+
+Inicializamos el servidor de Kafka.
+sudo /opt/Kafka/bin/kafka-server-start.sh /opt/Kafka/config/server.properties &
+
+•	implementar una aplicación Spark Streaming que consuma datos del topic de Kafka. 
+Para implementar una aplicación en spark streming debemos crear un topic en Kafka.
+/opt/Kafka/bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic sensor_data
+
+Realizamos la implementación del productor: 
+Creamos un archivo .py y agregamos el contenido o mensaje del productor.
+Para crear el archivo: nano kafka_producer.py
+Mensaje: 
+import time 
+import json 
+import random 
+from kafka import KafkaProducer 
+
+def generate_sensor_data(): 
+return { 
+"sensor_id": random.randint(1, 10), 
+"temperature": round(random.uniform(20, 30), 2), 
+"humidity": round(random.uniform(30, 70), 2), 
+"timestamp": int(time.time()) 
+} 
+producer = KafkaProducer(bootstrap_servers=['localhost:9092'], 
+value_serializer=lambda x: json.dumps(x).encode('utf-8')) 
+while True: 
+sensor_data = generate_sensor_data() 
+producer.send('sensor_data', value=sensor_data) 
+print(f"Sent: {sensor_data}") 
+time.sleep(1)
+
+Realizamos la implementación del consumidor: 
+Creamos un archivo .py y agregamos el contenido al consumidor.
+nano spark_streaming_consumer.py
+
+from pyspark.sql import SparkSession 
+from pyspark.sql.functions import from_json, col, window 
+from pyspark.sql.types import StructType, StructField, IntegerType, FloatType, TimestampType 
+import logging 
+# Configura el nivel de log a WARN para reducir los mensajes INFO 
+spark = SparkSession.builder \ 
+.appName("KafkaSparkStreaming") \ 
+.getOrCreate() 
+spark.sparkContext.setLogLevel("WARN") 
+# Definir el esquema de los datos de entrada 
+schema = StructType([ 
+StructField("sensor_id", IntegerType()), 
+StructField("temperature", FloatType()), 
+StructField("humidity", FloatType()), 
+StructField("timestamp", TimestampType()) 
+]) 
+# Crear una sesión de Spark 
+spark = SparkSession.builder \ 
+.appName("SensorDataAnalysis") \ 
+.getOrCreate() 
+# Configurar el lector de streaming para leer desde Kafka 
+df = spark \ 
+.readStream \ 
+.format("kafka") \ 
+.option("kafka.bootstrap.servers", "localhost:9092") \ 
+.option("subscribe", "sensor_data") \ 
+.load() 
+# Parsear los datos JSON 
+parsed_df = df.select(from_json(col("value").cast("string"), schema).alias("data")).select("data.*") 
+# Calcular estadísticas por ventana de tiempo 
+windowed_stats = parsed_df \ 
+.groupBy(window(col("timestamp"), "1 minute"), "sensor_id") \ 
+.agg({"temperature": "avg", "humidity": "avg"}) 
+# Escribir los resultados en la consola 
+query = windowed_stats \ 
+.writeStream \ 
+.outputMode("complete") \ 
+.format("console") \ 
+.start() 
+query.awaitTermination()
+
+•	Realizar algún tipo de procesamiento o análisis sobre los datos en tiempo real (contar eventos, calcular estadísticas, etc.). 
+Para realizar los procesamientos y análisis debemos ejecutar los archivos producer y consumer en diferentes putty en la misma conexión con el servidor.
+
+Inicializamos los servicios Kafka:
+Ejecutamos el productor en uno de los putty:
+python3 kafka_producer.py
